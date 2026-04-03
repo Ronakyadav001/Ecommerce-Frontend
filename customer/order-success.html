@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Success - Anvik Biotecch</title>
+    <link rel="stylesheet" href="../styles/main.css?v=4">
+    <link rel="stylesheet" href="../styles/customer.css?v=4">
+
+    <!-- ✅ Load ENV File -->
+    <script src="../env.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <h2>Anvik Biotecch</h2>
+            </div>
+            <div class="mobile-menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="index.html" class="nav-link">Home</a>
+                </li>
+                <li class="nav-item">
+                    <a href="products.html" class="nav-link">Products</a>
+                </li>
+                <li class="nav-item">
+                    <a href="cart.html" class="nav-link">Cart (<span id="cartCount">0</span>)</a>
+                </li>
+                <li class="nav-item" id="authSection"></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="customer-main">
+        <div class="container">
+            <div class="success-message">
+                <div class="success-icon" id="successIcon">⏳</div>
+                <h1 id="successTitle">Order Placed - Payment Pending</h1>
+                <p id="successSubtitle">Thank you for your order. Your payment is being processed.</p>
+                <p><strong>Order ID:</strong> <span id="orderId"></span></p>
+                <p id="paymentStatus"></p>
+                <p id="successMessage" style="display: none; color: green; font-weight: bold;">You will receive a confirmation email once payment is verified.</p>
+                <div class="success-actions">
+                    <a href="products.html" class="btn btn-primary">Continue Shopping</a>
+                    <a href="orders.html" class="btn btn-secondary">View Orders</a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="../scripts/mobile-menu.js?v=4"></script>
+    <script src="../scripts/auth.js?v=4"></script>
+
+    <script>
+        const API = window.ENV.API_URL; // ✅ backend from env.js
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const orderId = localStorage.getItem('lastOrderId');
+
+            if (orderId) {
+                document.getElementById('orderId').textContent = orderId;
+                verifyPaymentStatus(orderId);
+            }
+        });
+
+        async function verifyPaymentStatus(orderId) {
+            const statusEl = document.getElementById('paymentStatus');
+            statusEl.textContent = 'Checking payment status...';
+
+            let pollCount = 0;
+            const maxPolls = 20; // Poll for max 60 seconds (3s x 20)
+
+            async function pollPaymentStatus() {
+                try {
+                    pollCount++;
+                    console.log(`⏳ Checking payment status... attempt ${pollCount}`);
+
+                    const res = await fetch(`${API}/api/payments/cashfree/verify/${orderId}`, {
+                        headers: authService.getAuthHeaders()
+                    });
+
+                    const data = await res.json();
+                    console.log('📥 Payment status:', data);
+
+                    // ✅ PAYMENT COMPLETED - Order is confirmed!
+                    if (data.paymentStatus === 'completed') {
+                        console.log('✅ Payment confirmed successfully!');
+                        
+                        // Update UI for success
+                        document.getElementById('successIcon').textContent = '✅';
+                        document.getElementById('successTitle').textContent = 'Payment Confirmed!';
+                        document.getElementById('successSubtitle').textContent = 'Your order has been placed successfully.';
+                        statusEl.innerHTML = '<strong style="color: green;">✅ Payment confirmed successfully! Your order is confirmed.</strong>';
+                        document.getElementById('successMessage').style.display = 'block';
+                        
+                        // ✅ Clear cart only when payment is actually confirmed
+                        localStorage.removeItem('cart');
+                        updateCartCount();
+                        return;
+                    }
+
+                    // ❌ PAYMENT FAILED
+                    if (data.paymentStatus === 'failed') {
+                        console.log('❌ Payment failed');
+                        document.getElementById('successIcon').textContent = '❌';
+                        document.getElementById('successTitle').textContent = 'Payment Failed';
+                        statusEl.innerHTML = '<strong style="color: red;">❌ Payment failed. Please try again.</strong>';
+                        return;
+                    }
+
+                    // ⏳ PAYMENT PENDING - Keep waiting
+                    if (data.paymentStatus === 'pending' || !data.paymentStatus) {
+                        statusEl.textContent = `⏳ Waiting for payment confirmation... (${pollCount}/${maxPolls})`;
+                        
+                        // Keep polling until payment is confirmed or timeout
+                        if (pollCount < maxPolls) {
+                            setTimeout(pollPaymentStatus, 3000); // Poll every 3 seconds
+                        } else {
+                            // Timeout - order still pending
+                            statusEl.innerHTML = `
+                                <strong style="color: orange;">⏱️ Payment verification timeout</strong>
+                                <p>Your order is still pending. Payment may take a few moments to process.</p>
+                                <p>Please check back shortly or contact support if payment was completed.</p>
+                            `;
+                            console.log('⏱️ Payment verification timeout after', pollCount * 3, 'seconds');
+                        }
+                        return;
+                    }
+
+                } catch (err) {
+                    console.error('Error checking payment status:', err);
+                    statusEl.textContent = 'Error checking payment status. Please refresh page.';
+                }
+            }
+
+            // Start polling
+            pollPaymentStatus();
+        }
+    </script>
+</body>
+</html>
